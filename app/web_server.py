@@ -410,6 +410,283 @@ def opportunities():
 # SERVER
 # ==========================================
 
+# ==========================================
+# APPLICATION TRACKER
+# ==========================================
+
+@app.route("/api/applications", methods=["GET"])
+def get_applications():
+
+    user_id = request.args.get(
+        "user_id",
+        ""
+    ).strip()
+
+    if not user_id:
+
+        return jsonify({
+            "success": False,
+            "error": "user_id is required."
+        }), 400
+
+    try:
+        user_id = int(user_id)
+    except ValueError:
+
+        return jsonify({
+            "success": False,
+            "error": "Invalid user_id."
+        }), 400
+
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT *
+        FROM applications
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        """,
+        (user_id,)
+    ).fetchall()
+
+    connection.close()
+
+    return jsonify({
+        "success": True,
+        "applications": [
+            dict(row)
+            for row in rows
+        ]
+    })
+
+
+@app.route("/api/applications", methods=["POST"])
+def save_application():
+
+    data = request.get_json() or {}
+
+    user_id = data.get("user_id")
+    opportunity_id = str(
+        data.get("opportunity_id", "")
+    ).strip()
+
+    title = str(
+        data.get("title", "")
+    ).strip()
+
+    company = str(
+        data.get("company", "")
+    ).strip()
+
+    url = str(
+        data.get("url", "")
+    ).strip()
+
+    if not user_id:
+        return jsonify({
+            "success": False,
+            "error": "user_id is required."
+        }), 400
+
+    if not opportunity_id:
+        return jsonify({
+            "success": False,
+            "error": "opportunity_id is required."
+        }), 400
+
+    if not title:
+        return jsonify({
+            "success": False,
+            "error": "Opportunity title is required."
+        }), 400
+
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "error": "Invalid user_id."
+        }), 400
+
+    connection = get_connection()
+
+    existing = connection.execute(
+        """
+        SELECT id
+        FROM applications
+        WHERE user_id = ?
+        AND opportunity_id = ?
+        """,
+        (
+            user_id,
+            opportunity_id
+        )
+    ).fetchone()
+
+    if existing:
+
+        connection.close()
+
+        return jsonify({
+            "success": True,
+            "message": "Opportunity already saved.",
+            "application_id": existing["id"]
+        })
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO applications
+        (
+            user_id,
+            opportunity_id,
+            title,
+            company,
+            url
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            opportunity_id,
+            title,
+            company,
+            url
+        )
+    )
+
+    connection.commit()
+
+    application_id = cursor.lastrowid
+
+    connection.close()
+
+    return jsonify({
+        "success": True,
+        "message": "Opportunity saved.",
+        "application_id": application_id
+    })
+
+
+@app.route(
+    "/api/applications/<int:application_id>",
+    methods=["PATCH"]
+)
+def update_application(application_id):
+
+    data = request.get_json() or {}
+
+    status = str(
+        data.get("status", "")
+    ).strip().lower()
+
+    notes = data.get("notes")
+
+    allowed_statuses = {
+        "saved",
+        "applied",
+        "interview",
+        "offer",
+        "rejected"
+    }
+
+    if status and status not in allowed_statuses:
+
+        return jsonify({
+            "success": False,
+            "error": (
+                "Invalid status. Use: "
+                "saved, applied, interview, "
+                "offer, rejected."
+            )
+        }), 400
+
+    connection = get_connection()
+
+    existing = connection.execute(
+        """
+        SELECT id
+        FROM applications
+        WHERE id = ?
+        """,
+        (application_id,)
+    ).fetchone()
+
+    if not existing:
+
+        connection.close()
+
+        return jsonify({
+            "success": False,
+            "error": "Application not found."
+        }), 404
+
+    if status and notes is not None:
+
+        connection.execute(
+            """
+            UPDATE applications
+            SET status = ?,
+                notes = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                status,
+                str(notes),
+                application_id
+            )
+        )
+
+    elif status:
+
+        connection.execute(
+            """
+            UPDATE applications
+            SET status = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                status,
+                application_id
+            )
+        )
+
+    elif notes is not None:
+
+        connection.execute(
+            """
+            UPDATE applications
+            SET notes = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                str(notes),
+                application_id
+            )
+        )
+
+    else:
+
+        connection.close()
+
+        return jsonify({
+            "success": False,
+            "error": "Nothing to update."
+        }), 400
+
+    connection.commit()
+
+    connection.close()
+
+    return jsonify({
+        "success": True,
+        "message": "Application updated."
+    })
 if __name__ == "__main__":
 
     port = int(
