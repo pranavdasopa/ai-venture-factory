@@ -7,10 +7,6 @@ from app.agents.opportunity_agent import OpportunityAgent
 from app.core.database import get_connection, initialize_database
 
 
-# ==========================================
-# APP INITIALIZATION
-# ==========================================
-
 app = Flask(__name__)
 
 sai = SAI()
@@ -81,7 +77,7 @@ def chat():
 
 
 # ==========================================
-# USER PROFILE
+# PROFILE
 # ==========================================
 
 @app.route("/api/profile", methods=["POST"])
@@ -89,31 +85,18 @@ def create_profile():
 
     data = request.get_json() or {}
 
-    name = str(
-        data.get("name", "")
-    ).strip()
-
-    email = str(
-        data.get("email", "")
-    ).strip()
-
-    goal = str(
-        data.get("goal", "")
-    ).strip()
-
-    skills = str(
-        data.get("skills", "")
-    ).strip()
+    name = str(data.get("name", "")).strip()
+    email = str(data.get("email", "")).strip()
+    goal = str(data.get("goal", "")).strip()
+    skills = str(data.get("skills", "")).strip()
 
     if not name:
-
         return jsonify({
             "success": False,
             "error": "Name is required."
         }), 400
 
     if not email:
-
         return jsonify({
             "success": False,
             "error": "Email is required."
@@ -122,10 +105,8 @@ def create_profile():
     try:
 
         connection = get_connection()
-
         cursor = connection.cursor()
 
-        # Check whether this email already exists.
         existing = cursor.execute(
             """
             SELECT id
@@ -154,7 +135,6 @@ def create_profile():
             )
 
             user_id = existing["id"]
-
             message = "Profile updated."
 
         else:
@@ -179,7 +159,6 @@ def create_profile():
             )
 
             user_id = cursor.lastrowid
-
             message = "Profile created."
 
         connection.commit()
@@ -290,7 +269,6 @@ def add_goal():
         }), 400
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
@@ -339,37 +317,91 @@ def opportunities():
         ""
     ).strip()
 
+    user_id = request.args.get(
+        "user_id",
+        ""
+    ).strip()
+
     # --------------------------------------
-    # If the user searches something,
-    # perform normal opportunity search.
+    # Explicit search
     # --------------------------------------
 
     if query:
 
-        results = opportunity_agent.search(
-            query
-        )
+        results = opportunity_agent.search(query)
+
+        return jsonify({
+            "success": True,
+            "personalized": False,
+            "opportunities": results
+        })
 
     # --------------------------------------
-    # Otherwise use temporary default
-    # personalization.
-    #
-    # We will replace this with the actual
-    # logged-in user's profile next.
+    # Personalized search
     # --------------------------------------
 
-    else:
+    if user_id:
+
+        try:
+
+            user_id = int(user_id)
+
+        except ValueError:
+
+            return jsonify({
+                "success": False,
+                "error": "Invalid user_id."
+            }), 400
+
+        connection = get_connection()
+
+        user = connection.execute(
+            """
+            SELECT
+                id,
+                name,
+                goal,
+                skills
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,)
+        ).fetchone()
+
+        connection.close()
+
+        if not user:
+
+            return jsonify({
+                "success": False,
+                "error": "User not found."
+            }), 404
+
+        skills = user["skills"] or ""
+        goal = user["goal"] or ""
 
         results = opportunity_agent.personalized_search(
-            skills=[
-                "Python",
-                "AI"
-            ],
-            goal="Become an AI engineer"
+            skills=skills,
+            goal=goal
         )
+
+        return jsonify({
+            "success": True,
+            "personalized": True,
+            "user_id": user_id,
+            "opportunities": results
+        })
+
+    # --------------------------------------
+    # No user supplied.
+    # Return general opportunities.
+    # --------------------------------------
+
+    results = opportunity_agent.search()
 
     return jsonify({
         "success": True,
+        "personalized": False,
         "opportunities": results
     })
 
@@ -389,7 +421,6 @@ if __name__ == "__main__":
 
     print("=" * 60)
     print("SAI — SAHAYAK AI")
-    print("=" * 60)
     print("AI Venture Factory")
     print("AI: ONLINE")
     print(f"PORT: {port}")
