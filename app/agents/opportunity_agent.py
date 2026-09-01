@@ -1,8 +1,13 @@
+import requests
+
+
 class OpportunityAgent:
+
+    API_URL = "https://www.arbeitnow.com/api/job-board-api"
 
     def __init__(self):
 
-        self.opportunities = [
+        self.demo_opportunities = [
 
             {
                 "id": 1,
@@ -42,92 +47,303 @@ class OpportunityAgent:
         ]
 
 
+    def _extract_skills(self, job):
+
+        text = (
+            str(job.get("title", "")) + " " +
+            str(job.get("description", ""))
+        ).lower()
+
+        known_skills = [
+            "python",
+            "c++",
+            "c",
+            "java",
+            "javascript",
+            "typescript",
+            "react",
+            "node.js",
+            "sql",
+            "machine learning",
+            "deep learning",
+            "artificial intelligence",
+            "ai",
+            "data science",
+            "docker",
+            "kubernetes",
+            "aws",
+            "azure",
+            "git",
+            "linux",
+            "django",
+            "flask",
+            "fastapi",
+            "tensorflow",
+            "pytorch",
+            "embedded systems",
+            "verilog",
+            "vlsi"
+        ]
+
+        found = []
+
+        for skill in known_skills:
+
+            if skill in text and skill not in found:
+
+                found.append(skill)
+
+        return found
+
+
+    def fetch_live(self):
+
+        try:
+
+            response = requests.get(
+                self.API_URL,
+                params={
+                    "page": 1
+                },
+                timeout=15
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            jobs = data.get("data", [])
+
+            results = []
+
+            for job in jobs:
+
+                title = job.get(
+                    "title",
+                    "Untitled position"
+                )
+
+                company = job.get(
+                    "company_name",
+                    "Unknown company"
+                )
+
+                location = job.get(
+                    "location",
+                    "Not specified"
+                )
+
+                description = job.get(
+                    "description",
+                    ""
+                )
+
+                url = job.get(
+                    "url",
+                    ""
+                )
+
+                remote = job.get(
+                    "remote",
+                    False
+                )
+
+                skills = self._extract_skills(job)
+
+                results.append({
+
+                    "id": job.get(
+                        "slug",
+                        url
+                    ),
+
+                    "title": title,
+
+                    "company": company,
+
+                    "type": "Remote" if remote else "Job",
+
+                    "skills": skills,
+
+                    "location": location,
+
+                    "url": url,
+
+                    "source": "Arbeitnow"
+
+                })
+
+            return results
+
+        except Exception:
+
+            return []
+
+
     def search(self, query=""):
 
-        query = str(query).lower().strip()
+        query = query.lower().strip()
+
+        live_jobs = self.fetch_live()
+
+        if not live_jobs:
+
+            opportunities = self.demo_opportunities
+
+        else:
+
+            opportunities = live_jobs
+
 
         if not query:
-            return self.opportunities
+
+            return opportunities
+
 
         results = []
 
-        for opportunity in self.opportunities:
+        for opportunity in opportunities:
 
-            searchable = " ".join([
-                opportunity["title"],
-                opportunity["company"],
-                opportunity["type"],
-                " ".join(opportunity["skills"]),
-                opportunity["location"]
-            ]).lower()
+            searchable = (
+
+                str(
+                    opportunity.get("title", "")
+                )
+                + " "
+                + str(
+                    opportunity.get("company", "")
+                )
+                + " "
+                + str(
+                    opportunity.get("type", "")
+                )
+                + " "
+                + " ".join(
+                    opportunity.get("skills", [])
+                )
+                + " "
+                + str(
+                    opportunity.get("location", "")
+                )
+
+            ).lower()
+
 
             if query in searchable:
-                results.append(opportunity)
+
+                results.append(
+                    opportunity
+                )
 
         return results
 
 
-    def personalized_search(self, skills=None, goal=""):
+    def personalized_search(
+        self,
+        skills=None,
+        goal=""
+    ):
 
         skills = skills or []
 
         if isinstance(skills, str):
+
             skills = [
-                skill.strip()
-                for skill in skills.split(",")
-                if skill.strip()
+                item.strip()
+                for item in skills.split(",")
+                if item.strip()
             ]
 
-        user_skills = {
-            str(skill).lower().strip()
-            for skill in skills
-            if str(skill).strip()
-        }
+        goal = str(goal or "").strip()
 
-        goal_words = set(
-            str(goal).lower().replace("/", " ").split()
-        )
+        live_jobs = self.fetch_live()
 
-        ranked = []
+        if not live_jobs:
 
-        for opportunity in self.opportunities:
+            opportunities = self.demo_opportunities
 
-            opportunity_skills = {
-                str(skill).lower().strip()
-                for skill in opportunity["skills"]
-            }
+        else:
 
-            skill_matches = (
-                user_skills & opportunity_skills
+            opportunities = live_jobs
+
+
+        user_terms = set()
+
+        for skill in skills:
+
+            user_terms.add(
+                skill.lower().strip()
             )
 
-            searchable = " ".join([
-                opportunity["title"],
-                opportunity["company"],
-                opportunity["type"],
-                " ".join(opportunity["skills"]),
-                opportunity["location"]
-            ]).lower()
+        for word in goal.lower().split():
 
-            goal_matches = sum(
-                1 for word in goal_words
-                if len(word) >= 3 and word in searchable
-            )
+            if len(word) >= 3:
 
-            score = (
-                len(skill_matches) * 10
-                + goal_matches * 2
-            )
+                user_terms.add(word)
 
-            ranked.append({
-                **opportunity,
-                "match_score": score,
-                "matched_skills": sorted(skill_matches)
-            })
 
-        ranked.sort(
+        scored = []
+
+        for opportunity in opportunities:
+
+            searchable = (
+
+                str(
+                    opportunity.get("title", "")
+                )
+                + " "
+                + str(
+                    opportunity.get("company", "")
+                )
+                + " "
+                + str(
+                    opportunity.get("type", "")
+                )
+                + " "
+                + " ".join(
+                    opportunity.get("skills", [])
+                )
+                + " "
+                + str(
+                    opportunity.get("location", "")
+                )
+
+            ).lower()
+
+
+            matched = []
+
+            for term in user_terms:
+
+                if term and term in searchable:
+
+                    matched.append(term)
+
+
+            score = 0
+
+            if user_terms:
+
+                score = round(
+                    (
+                        len(matched)
+                        / len(user_terms)
+                    ) * 100
+                )
+
+
+            item = dict(opportunity)
+
+            item["match_score"] = score
+
+            item["matched_skills"] = matched
+
+            scored.append(item)
+
+
+        scored.sort(
             key=lambda item: item["match_score"],
             reverse=True
         )
 
-        return ranked
+        return scored[:20]
