@@ -1,4 +1,5 @@
 import os
+import sqlite3
 
 from flask import Flask, request, jsonify, render_template
 
@@ -7,10 +8,19 @@ from app.agents.opportunity_agent import OpportunityAgent
 from app.core.database import get_connection, initialize_database
 
 
+# ==========================================
+# APP
+# ==========================================
+
 app = Flask(__name__)
 
 sai = SAI()
 opportunity_agent = OpportunityAgent()
+
+
+# ==========================================
+# DATABASE
+# ==========================================
 
 initialize_database()
 
@@ -21,6 +31,7 @@ initialize_database()
 
 @app.route("/")
 def home():
+
     return render_template("index.html")
 
 
@@ -40,7 +51,7 @@ def health():
 
 
 # ==========================================
-# SAI CHAT
+# CHAT
 # ==========================================
 
 @app.route("/api/chat", methods=["POST"])
@@ -85,29 +96,47 @@ def create_profile():
 
     data = request.get_json() or {}
 
-    name = str(data.get("name", "")).strip()
-    email = str(data.get("email", "")).strip()
-    goal = str(data.get("goal", "")).strip()
-    skills = str(data.get("skills", "")).strip()
+    name = str(
+        data.get("name", "")
+    ).strip()
+
+    email = str(
+        data.get("email", "")
+    ).strip()
+
+    goal = str(
+        data.get("goal", "")
+    ).strip()
+
+    skills = str(
+        data.get("skills", "")
+    ).strip()
+
 
     if not name:
+
         return jsonify({
             "success": False,
             "error": "Name is required."
         }), 400
 
+
     if not email:
+
         return jsonify({
             "success": False,
             "error": "Email is required."
         }), 400
 
+
+    connection = get_connection()
+
+    connection.row_factory = sqlite3.Row
+
+
     try:
 
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        existing = cursor.execute(
+        existing = connection.execute(
             """
             SELECT id
             FROM users
@@ -116,95 +145,119 @@ def create_profile():
             (email,)
         ).fetchone()
 
+
         if existing:
 
-            cursor.execute(
+            user_id = existing["id"]
+
+            connection.execute(
                 """
                 UPDATE users
-                SET name = ?,
+                SET
+                    name = ?,
                     goal = ?,
                     skills = ?
-                WHERE email = ?
+                WHERE id = ?
                 """,
                 (
                     name,
                     goal,
                     skills,
-                    email
+                    user_id
                 )
             )
 
-            user_id = existing["id"]
-            message = "Profile updated."
+            connection.commit()
 
-        else:
+            return jsonify({
+                "success": True,
+                "user_id": user_id,
+                "message": "Profile updated."
+            })
 
-            cursor.execute(
-                """
-                INSERT INTO users
-                (
-                    name,
-                    email,
-                    goal,
-                    skills
-                )
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    email,
-                    goal,
-                    skills
-                )
+
+        cursor = connection.execute(
+            """
+            INSERT INTO users
+            (
+                name,
+                email,
+                goal,
+                skills
             )
-
-            user_id = cursor.lastrowid
-            message = "Profile created."
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                name,
+                email,
+                goal,
+                skills
+            )
+        )
 
         connection.commit()
-        connection.close()
+
+        user_id = cursor.lastrowid
 
         return jsonify({
             "success": True,
             "user_id": user_id,
-            "message": message
+            "message": "Profile created."
         })
 
-    except Exception as error:
 
-        return jsonify({
-            "success": False,
-            "error": str(error)
-        }), 400
+    finally:
 
+        connection.close()
+
+
+# ==========================================
+# GET PROFILE
+# ==========================================
 
 @app.route("/api/profile/<int:user_id>")
 def get_profile(user_id):
 
     connection = get_connection()
 
-    user = connection.execute(
-        """
-        SELECT *
-        FROM users
-        WHERE id = ?
-        """,
-        (user_id,)
-    ).fetchone()
+    connection.row_factory = sqlite3.Row
 
-    connection.close()
 
-    if not user:
+    try:
+
+        user = connection.execute(
+            """
+            SELECT
+                id,
+                name,
+                email,
+                goal,
+                skills,
+                created_at
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,)
+        ).fetchone()
+
+
+        if not user:
+
+            return jsonify({
+                "success": False,
+                "error": "User not found."
+            }), 404
+
 
         return jsonify({
-            "success": False,
-            "error": "User not found."
-        }), 404
+            "success": True,
+            "profile": dict(user)
+        })
 
-    return jsonify({
-        "success": True,
-        "profile": dict(user)
-    })
+
+    finally:
+
+        connection.close()
 
 
 # ==========================================
@@ -216,40 +269,41 @@ def get_goals():
 
     connection = get_connection()
 
-    rows = connection.execute(
-        """
-        SELECT
-            id,
-            title,
-            description,
-            status,
-            priority,
-            created_at
-        FROM tasks
-        WHERE owner = 'user'
-        ORDER BY id DESC
-        """
-    ).fetchall()
+    connection.row_factory = sqlite3.Row
 
-    connection.close()
 
-    goals = []
+    try:
 
-    for row in rows:
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                title,
+                description,
+                status,
+                priority,
+                created_at
+            FROM tasks
+            ORDER BY id DESC
+            """
+        ).fetchall()
 
-        goals.append({
-            "id": row["id"],
-            "title": row["title"],
-            "description": row["description"],
-            "status": row["status"],
-            "priority": row["priority"],
-            "created_at": row["created_at"]
+
+        goals = [
+            dict(row)
+            for row in rows
+        ]
+
+
+        return jsonify({
+            "success": True,
+            "goals": goals
         })
 
-    return jsonify({
-        "success": True,
-        "goals": goals
-    })
+
+    finally:
+
+        connection.close()
 
 
 @app.route("/api/goals", methods=["POST"])
@@ -261,6 +315,7 @@ def add_goal():
         data.get("goal", "")
     ).strip()
 
+
     if not goal:
 
         return jsonify({
@@ -268,41 +323,49 @@ def add_goal():
             "error": "Goal is required."
         }), 400
 
+
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO tasks
-        (
-            title,
-            description,
-            owner,
-            status,
-            priority
+
+    try:
+
+        cursor = connection.execute(
+            """
+            INSERT INTO tasks
+            (
+                title,
+                description,
+                owner,
+                status,
+                priority
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                goal,
+                "",
+                "USER",
+                "todo",
+                "high"
+            )
         )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            goal,
-            "SAI user goal",
-            "user",
-            "todo",
-            "high"
-        )
-    )
 
-    connection.commit()
 
-    goal_id = cursor.lastrowid
+        connection.commit()
 
-    connection.close()
+        goal_id = cursor.lastrowid
 
-    return jsonify({
-        "success": True,
-        "goal_id": goal_id,
-        "message": "Goal added."
-    })
+
+        return jsonify({
+            "success": True,
+            "goal_id": goal_id,
+            "message": "Goal added."
+        })
+
+
+    finally:
+
+        connection.close()
 
 
 # ==========================================
@@ -322,19 +385,24 @@ def opportunities():
         ""
     ).strip()
 
+
     # --------------------------------------
     # Explicit search
     # --------------------------------------
 
     if query:
 
-        results = opportunity_agent.search(query)
+        results = opportunity_agent.search(
+            query
+        )
+
 
         return jsonify({
             "success": True,
             "personalized": False,
             "opportunities": results
         })
+
 
     # --------------------------------------
     # Personalized search
@@ -353,22 +421,32 @@ def opportunities():
                 "error": "Invalid user_id."
             }), 400
 
+
         connection = get_connection()
 
-        user = connection.execute(
-            """
-            SELECT
-                id,
-                name,
-                goal,
-                skills
-            FROM users
-            WHERE id = ?
-            """,
-            (user_id,)
-        ).fetchone()
+        connection.row_factory = sqlite3.Row
 
-        connection.close()
+
+        try:
+
+            user = connection.execute(
+                """
+                SELECT
+                    id,
+                    name,
+                    goal,
+                    skills
+                FROM users
+                WHERE id = ?
+                """,
+                (user_id,)
+            ).fetchone()
+
+
+        finally:
+
+            connection.close()
+
 
         if not user:
 
@@ -377,13 +455,31 @@ def opportunities():
                 "error": "User not found."
             }), 404
 
-        skills = user["skills"] or ""
-        goal = user["goal"] or ""
+
+        skills_text = (
+            user["skills"] or ""
+        )
+
+        goal = (
+            user["goal"] or ""
+        )
+
+
+        # Convert comma-separated skills
+        # into a real Python list.
+
+        skills = [
+            skill.strip()
+            for skill in skills_text.split(",")
+            if skill.strip()
+        ]
+
 
         results = opportunity_agent.personalized_search(
             skills=skills,
             goal=goal
         )
+
 
         return jsonify({
             "success": True,
@@ -392,12 +488,13 @@ def opportunities():
             "opportunities": results
         })
 
+
     # --------------------------------------
-    # No user supplied.
-    # Return general opportunities.
+    # General opportunities
     # --------------------------------------
 
     results = opportunity_agent.search()
+
 
     return jsonify({
         "success": True,
@@ -405,10 +502,6 @@ def opportunities():
         "opportunities": results
     })
 
-
-# ==========================================
-# SERVER
-# ==========================================
 
 # ==========================================
 # APPLICATION TRACKER
@@ -422,6 +515,7 @@ def get_applications():
         ""
     ).strip()
 
+
     if not user_id:
 
         return jsonify({
@@ -429,8 +523,11 @@ def get_applications():
             "error": "user_id is required."
         }), 400
 
+
     try:
+
         user_id = int(user_id)
+
     except ValueError:
 
         return jsonify({
@@ -438,151 +535,234 @@ def get_applications():
             "error": "Invalid user_id."
         }), 400
 
+
     connection = get_connection()
 
-    rows = connection.execute(
-        """
-        SELECT *
-        FROM applications
-        WHERE user_id = ?
-        ORDER BY updated_at DESC
-        """,
-        (user_id,)
-    ).fetchall()
+    connection.row_factory = sqlite3.Row
 
-    connection.close()
 
-    return jsonify({
-        "success": True,
-        "applications": [
+    try:
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                opportunity_id,
+                title,
+                company,
+                url,
+                status,
+                created_at
+            FROM applications
+            WHERE user_id = ?
+            ORDER BY id DESC
+            """,
+            (user_id,)
+        ).fetchall()
+
+
+        applications = [
             dict(row)
             for row in rows
         ]
-    })
 
+
+        return jsonify({
+            "success": True,
+            "applications": applications
+        })
+
+
+    finally:
+
+        connection.close()
+
+
+# ==========================================
+# SAVE APPLICATION
+# ==========================================
 
 @app.route("/api/applications", methods=["POST"])
 def save_application():
 
     data = request.get_json() or {}
 
-    user_id = data.get("user_id")
-    opportunity_id = str(
-        data.get("opportunity_id", "")
-    ).strip()
 
-    title = str(
-        data.get("title", "")
-    ).strip()
+    try:
 
-    company = str(
-        data.get("company", "")
-    ).strip()
+        user_id = int(
+            data.get("user_id")
+        )
 
-    url = str(
-        data.get("url", "")
-    ).strip()
+    except (
+        TypeError,
+        ValueError
+    ):
 
-    if not user_id:
         return jsonify({
             "success": False,
-            "error": "user_id is required."
+            "error": "Valid user_id is required."
         }), 400
 
+
+    opportunity_id = str(
+        data.get(
+            "opportunity_id",
+            ""
+        )
+    ).strip()
+
+
+    title = str(
+        data.get(
+            "title",
+            ""
+        )
+    ).strip()
+
+
+    company = str(
+        data.get(
+            "company",
+            ""
+        )
+    ).strip()
+
+
+    url = str(
+        data.get(
+            "url",
+            ""
+        )
+    ).strip()
+
+
     if not opportunity_id:
+
         return jsonify({
             "success": False,
             "error": "opportunity_id is required."
         }), 400
 
+
     if not title:
+
         return jsonify({
             "success": False,
             "error": "Opportunity title is required."
         }), 400
 
-    try:
-        user_id = int(user_id)
-    except ValueError:
-        return jsonify({
-            "success": False,
-            "error": "Invalid user_id."
-        }), 400
 
     connection = get_connection()
 
-    existing = connection.execute(
-        """
-        SELECT id
-        FROM applications
-        WHERE user_id = ?
-        AND opportunity_id = ?
-        """,
-        (
-            user_id,
-            opportunity_id
+    connection.row_factory = sqlite3.Row
+
+
+    try:
+
+        user = connection.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,)
+        ).fetchone()
+
+
+        if not user:
+
+            return jsonify({
+                "success": False,
+                "error": "User not found."
+            }), 404
+
+
+        existing = connection.execute(
+            """
+            SELECT id
+            FROM applications
+            WHERE user_id = ?
+            AND opportunity_id = ?
+            """,
+            (
+                user_id,
+                opportunity_id
+            )
+        ).fetchone()
+
+
+        if existing:
+
+            return jsonify({
+                "success": True,
+                "application_id": existing["id"],
+                "message": "Opportunity already saved."
+            })
+
+
+        cursor = connection.execute(
+            """
+            INSERT INTO applications
+            (
+                user_id,
+                opportunity_id,
+                title,
+                company,
+                url,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                opportunity_id,
+                title,
+                company,
+                url,
+                "saved"
+            )
         )
-    ).fetchone()
 
-    if existing:
 
-        connection.close()
+        connection.commit()
+
 
         return jsonify({
             "success": True,
-            "message": "Opportunity already saved.",
-            "application_id": existing["id"]
+            "application_id": cursor.lastrowid,
+            "message": "Opportunity saved."
         })
 
-    cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO applications
-        (
-            user_id,
-            opportunity_id,
-            title,
-            company,
-            url
-        )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            user_id,
-            opportunity_id,
-            title,
-            company,
-            url
-        )
-    )
+    finally:
 
-    connection.commit()
+        connection.close()
 
-    application_id = cursor.lastrowid
 
-    connection.close()
-
-    return jsonify({
-        "success": True,
-        "message": "Opportunity saved.",
-        "application_id": application_id
-    })
-
+# ==========================================
+# UPDATE APPLICATION STATUS
+# ==========================================
 
 @app.route(
     "/api/applications/<int:application_id>",
     methods=["PATCH"]
 )
-def update_application(application_id):
+def update_application(
+    application_id
+):
 
     data = request.get_json() or {}
 
+
     status = str(
-        data.get("status", "")
+        data.get(
+            "status",
+            ""
+        )
     ).strip().lower()
 
-    notes = data.get("notes")
 
     allowed_statuses = {
         "saved",
@@ -592,61 +772,28 @@ def update_application(application_id):
         "rejected"
     }
 
-    if status and status not in allowed_statuses:
+
+    if status not in allowed_statuses:
 
         return jsonify({
             "success": False,
             "error": (
-                "Invalid status. Use: "
-                "saved, applied, interview, "
-                "offer, rejected."
+                "Invalid status. "
+                "Use: saved, applied, "
+                "interview, offer, rejected."
             )
         }), 400
+
 
     connection = get_connection()
 
-    existing = connection.execute(
-        """
-        SELECT id
-        FROM applications
-        WHERE id = ?
-        """,
-        (application_id,)
-    ).fetchone()
 
-    if not existing:
+    try:
 
-        connection.close()
-
-        return jsonify({
-            "success": False,
-            "error": "Application not found."
-        }), 404
-
-    if status and notes is not None:
-
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE applications
-            SET status = ?,
-                notes = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (
-                status,
-                str(notes),
-                application_id
-            )
-        )
-
-    elif status:
-
-        connection.execute(
-            """
-            UPDATE applications
-            SET status = ?,
-                updated_at = CURRENT_TIMESTAMP
+            SET status = ?
             WHERE id = ?
             """,
             (
@@ -655,38 +802,35 @@ def update_application(application_id):
             )
         )
 
-    elif notes is not None:
 
-        connection.execute(
-            """
-            UPDATE applications
-            SET notes = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (
-                str(notes),
-                application_id
-            )
-        )
+        connection.commit()
 
-    else:
+
+        if cursor.rowcount == 0:
+
+            return jsonify({
+                "success": False,
+                "error": "Application not found."
+            }), 404
+
+
+        return jsonify({
+            "success": True,
+            "application_id": application_id,
+            "status": status,
+            "message": "Application updated."
+        })
+
+
+    finally:
 
         connection.close()
 
-        return jsonify({
-            "success": False,
-            "error": "Nothing to update."
-        }), 400
 
-    connection.commit()
+# ==========================================
+# SERVER
+# ==========================================
 
-    connection.close()
-
-    return jsonify({
-        "success": True,
-        "message": "Application updated."
-    })
 if __name__ == "__main__":
 
     port = int(
@@ -696,12 +840,6 @@ if __name__ == "__main__":
         )
     )
 
-    print("=" * 60)
-    print("SAI — SAHAYAK AI")
-    print("AI Venture Factory")
-    print("AI: ONLINE")
-    print(f"PORT: {port}")
-    print("=" * 60)
 
     app.run(
         host="0.0.0.0",
