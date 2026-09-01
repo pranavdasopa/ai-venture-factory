@@ -5,7 +5,7 @@ class OpportunityAgent:
         self.opportunities = [
 
             {
-                "id": "ai-internship-001",
+                "id": 1,
                 "title": "AI / ML Internship",
                 "company": "Technology Startup",
                 "type": "Internship",
@@ -15,11 +15,12 @@ class OpportunityAgent:
                     "Machine Learning"
                 ],
                 "location": "Remote",
+                "description": "AI and machine learning internship opportunity.",
                 "url": ""
             },
 
             {
-                "id": "software-internship-001",
+                "id": 2,
                 "title": "Software Engineering Internship",
                 "company": "Technology Company",
                 "type": "Internship",
@@ -29,11 +30,12 @@ class OpportunityAgent:
                     "DSA"
                 ],
                 "location": "India",
+                "description": "Software engineering internship focused on programming and problem solving.",
                 "url": ""
             },
 
             {
-                "id": "ai-hackathon-001",
+                "id": 3,
                 "title": "AI Hackathon",
                 "company": "Developer Community",
                 "type": "Hackathon",
@@ -42,77 +44,123 @@ class OpportunityAgent:
                     "Python"
                 ],
                 "location": "Online",
+                "description": "Online hackathon for developers building AI projects.",
                 "url": ""
             },
 
             {
-                "id": "ml-program-001",
+                "id": 4,
                 "title": "Machine Learning Program",
                 "company": "Education Platform",
                 "type": "Program",
                 "skills": [
                     "Python",
-                    "ML",
+                    "Machine Learning",
                     "Data Science"
                 ],
                 "location": "Online",
+                "description": "Machine learning learning program.",
                 "url": ""
             }
+
         ]
 
 
+    # ======================================
+    # NORMAL SEARCH
+    # ======================================
+
     def search(self, query=""):
 
-        query = str(query).lower().strip()
+        query = str(
+            query or ""
+        ).lower().strip()
+
 
         if not query:
 
             return self.opportunities
 
-        terms = query.split()
+
+        words = [
+            word
+            for word in query.split()
+            if word
+        ]
+
 
         results = []
 
+
         for opportunity in self.opportunities:
 
-            searchable = (
-                opportunity["title"]
-                + " "
-                + opportunity["company"]
-                + " "
-                + opportunity["type"]
-                + " "
-                + " ".join(
+            searchable = " ".join([
+
+                opportunity["title"],
+
+                opportunity["company"],
+
+                opportunity["type"],
+
+                opportunity["location"],
+
+                opportunity["description"],
+
+                " ".join(
                     opportunity["skills"]
                 )
-                + " "
-                + opportunity["location"]
-            ).lower()
+
+            ]).lower()
+
 
             score = 0
 
-            for term in terms:
 
-                if term in searchable:
+            for word in words:
+
+                if word in searchable:
 
                     score += 1
 
+
             if score > 0:
 
-                result = dict(opportunity)
+                result = dict(
+                    opportunity
+                )
 
                 result["match_score"] = score
+
+                result["matched_skills"] = []
+
+                for skill in opportunity["skills"]:
+
+                    if skill.lower() in query:
+
+                        result[
+                            "matched_skills"
+                        ].append(skill)
+
 
                 results.append(result)
 
 
         results.sort(
-            key=lambda item: item["match_score"],
+            key=lambda item:
+                item.get(
+                    "match_score",
+                    0
+                ),
             reverse=True
         )
 
+
         return results
 
+
+    # ======================================
+    # PERSONALIZED SEARCH
+    # ======================================
 
     def personalized_search(
         self,
@@ -122,87 +170,159 @@ class OpportunityAgent:
 
         skills = skills or []
 
-        skills = [
-            str(skill).strip()
-            for skill in skills
-            if str(skill).strip()
-        ]
+        goal = str(
+            goal or ""
+        ).lower().strip()
 
-        goal = str(goal).strip()
+
+        normalized_skills = []
+
+
+        for skill in skills:
+
+            skill = str(
+                skill
+            ).strip().lower()
+
+
+            if skill:
+
+                normalized_skills.append(
+                    skill
+                )
+
 
         results = []
+
 
         for opportunity in self.opportunities:
 
             opportunity_skills = [
+
                 skill.lower()
-                for skill in opportunity["skills"]
+
+                for skill
+                in opportunity["skills"]
+
             ]
+
 
             matched_skills = []
 
-            for skill in skills:
 
-                skill_lower = skill.lower()
+            for user_skill in normalized_skills:
 
                 for opportunity_skill in opportunity_skills:
 
                     if (
-                        skill_lower in opportunity_skill
-                        or opportunity_skill in skill_lower
+                        user_skill
+                        == opportunity_skill
+                        or
+                        user_skill
+                        in opportunity_skill
+                        or
+                        opportunity_skill
+                        in user_skill
                     ):
 
-                        if skill not in matched_skills:
+                        original_skill = next(
+                            skill
+                            for skill
+                            in opportunity["skills"]
+                            if skill.lower()
+                            == opportunity_skill
+                        )
+
+                        if (
+                            original_skill
+                            not in matched_skills
+                        ):
 
                             matched_skills.append(
-                                skill
+                                original_skill
                             )
 
 
-            searchable = (
-                opportunity["title"]
-                + " "
-                + opportunity["company"]
-                + " "
-                + opportunity["type"]
-                + " "
-                + " ".join(
+            goal_words = [
+
+                word
+
+                for word
+                in goal.split()
+
+                if len(word) > 2
+
+            ]
+
+
+            searchable = " ".join([
+
+                opportunity["title"],
+
+                opportunity["type"],
+
+                opportunity["description"],
+
+                opportunity["location"],
+
+                " ".join(
                     opportunity["skills"]
                 )
-                + " "
-                + opportunity["location"]
-                + " "
-                + goal
-            ).lower()
+
+            ]).lower()
 
 
             goal_matches = 0
 
-            for word in goal.lower().split():
 
-                if len(word) >= 3 and word in searchable:
+            for word in goal_words:
+
+                if word in searchable:
 
                     goal_matches += 1
 
 
-            score = (
-                len(matched_skills) * 10
+            skill_score = (
+                len(matched_skills)
+            )
+
+
+            total_score = (
+                skill_score * 3
                 + goal_matches
             )
 
 
-            result = dict(opportunity)
+            if total_score > 0:
 
-            result["match_score"] = score
+                result = dict(
+                    opportunity
+                )
 
-            result["matched_skills"] = matched_skills
+                result[
+                    "match_score"
+                ] = total_score
 
-            results.append(result)
+                result[
+                    "matched_skills"
+                ] = matched_skills
+
+                results.append(
+                    result
+                )
 
 
         results.sort(
-            key=lambda item: item["match_score"],
+
+            key=lambda item:
+                item.get(
+                    "match_score",
+                    0
+                ),
+
             reverse=True
+
         )
+
 
         return results
