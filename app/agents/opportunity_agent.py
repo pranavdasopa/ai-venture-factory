@@ -1,3 +1,4 @@
+import re
 import requests
 
 
@@ -6,343 +7,246 @@ class OpportunityAgent:
     API_URL = "https://www.arbeitnow.com/api/job-board-api"
 
     def __init__(self):
-
         self.demo_opportunities = [
-
             {
-                "id": 1,
+                "id": "demo-1",
                 "title": "AI / ML Internship",
                 "company": "Technology Startup",
                 "type": "Internship",
                 "skills": ["Python", "AI", "Machine Learning"],
-                "location": "Remote"
+                "location": "Remote",
+                "url": "",
+                "source": "Demo"
             },
-
             {
-                "id": 2,
+                "id": "demo-2",
                 "title": "Software Engineering Internship",
                 "company": "Technology Company",
                 "type": "Internship",
                 "skills": ["Python", "C++", "DSA"],
-                "location": "India"
-            },
-
-            {
-                "id": 3,
-                "title": "AI Hackathon",
-                "company": "Developer Community",
-                "type": "Hackathon",
-                "skills": ["AI", "Python"],
-                "location": "Online"
-            },
-
-            {
-                "id": 4,
-                "title": "Machine Learning Program",
-                "company": "Education Platform",
-                "type": "Program",
-                "skills": ["Python", "ML", "Data Science"],
-                "location": "Online"
+                "location": "India",
+                "url": "",
+                "source": "Demo"
             }
         ]
 
+    def _clean_html(self, text):
+        text = re.sub(r"<[^>]+>", " ", str(text or ""))
+        return re.sub(r"\s+", " ", text).strip()
 
     def _extract_skills(self, job):
-
         text = (
             str(job.get("title", "")) + " " +
-            str(job.get("description", ""))
+            self._clean_html(job.get("description", ""))
         ).lower()
 
         known_skills = [
-            "python",
-            "c++",
-            "c",
-            "java",
-            "javascript",
-            "typescript",
-            "react",
-            "node.js",
-            "sql",
-            "machine learning",
-            "deep learning",
-            "artificial intelligence",
-            "ai",
-            "data science",
-            "docker",
-            "kubernetes",
-            "aws",
-            "azure",
-            "git",
-            "linux",
-            "django",
-            "flask",
-            "fastapi",
-            "tensorflow",
-            "pytorch",
-            "embedded systems",
-            "verilog",
-            "vlsi"
+            "python", "c++", "c", "java",
+            "javascript", "typescript", "react",
+            "node.js", "sql", "machine learning",
+            "deep learning", "artificial intelligence",
+            "ai", "data science", "docker",
+            "kubernetes", "aws", "azure", "git",
+            "linux", "django", "flask", "fastapi",
+            "tensorflow", "pytorch",
+            "embedded systems", "verilog", "vlsi",
+            "cuda", "golang", "rust"
         ]
 
-        found = []
-
-        for skill in known_skills:
-
-            if skill in text and skill not in found:
-
-                found.append(skill)
-
-        return found
-
+        return [
+            skill for skill in known_skills
+            if skill in text
+        ]
 
     def fetch_live(self):
-
         try:
-
             response = requests.get(
                 self.API_URL,
-                params={
-                    "page": 1
-                },
+                params={"page": 1},
                 timeout=15
             )
 
             response.raise_for_status()
 
-            data = response.json()
-
-            jobs = data.get("data", [])
+            jobs = response.json().get("data", [])
 
             results = []
 
             for job in jobs:
 
-                title = job.get(
-                    "title",
-                    "Untitled position"
-                )
-
-                company = job.get(
-                    "company_name",
-                    "Unknown company"
-                )
-
-                location = job.get(
-                    "location",
-                    "Not specified"
-                )
-
-                description = job.get(
-                    "description",
-                    ""
-                )
-
-                url = job.get(
-                    "url",
-                    ""
-                )
-
-                remote = job.get(
-                    "remote",
-                    False
-                )
-
-                skills = self._extract_skills(job)
-
                 results.append({
-
-                    "id": job.get(
-                        "slug",
-                        url
+                    "id": job.get("slug") or job.get("url"),
+                    "title": job.get(
+                        "title",
+                        "Untitled position"
                     ),
-
-                    "title": title,
-
-                    "company": company,
-
-                    "type": "Remote" if remote else "Job",
-
-                    "skills": skills,
-
-                    "location": location,
-
-                    "url": url,
-
+                    "company": job.get(
+                        "company_name",
+                        "Unknown company"
+                    ),
+                    "type": (
+                        "Remote"
+                        if job.get("remote")
+                        else "Job"
+                    ),
+                    "skills": self._extract_skills(job),
+                    "location": job.get(
+                        "location",
+                        "Not specified"
+                    ),
+                    "url": job.get("url", ""),
                     "source": "Arbeitnow"
-
                 })
 
             return results
 
-        except Exception:
-
+        except Exception as error:
+            print(
+                "Live opportunity API unavailable:",
+                error
+            )
             return []
 
+    def _get_opportunities(self):
+        live = self.fetch_live()
+
+        if live:
+            return live
+
+        return self.demo_opportunities
 
     def search(self, query=""):
+        query = str(query or "").strip().lower()
 
-        query = query.lower().strip()
-
-        live_jobs = self.fetch_live()
-
-        if not live_jobs:
-
-            opportunities = self.demo_opportunities
-
-        else:
-
-            opportunities = live_jobs
-
+        opportunities = self._get_opportunities()
 
         if not query:
-
-            return opportunities
-
+            return opportunities[:20]
 
         results = []
 
         for opportunity in opportunities:
 
-            searchable = (
-
-                str(
-                    opportunity.get("title", "")
-                )
-                + " "
-                + str(
-                    opportunity.get("company", "")
-                )
-                + " "
-                + str(
-                    opportunity.get("type", "")
-                )
-                + " "
-                + " ".join(
-                    opportunity.get("skills", [])
-                )
-                + " "
-                + str(
-                    opportunity.get("location", "")
-                )
-
-            ).lower()
-
+            searchable = " ".join([
+                str(opportunity.get("title", "")),
+                str(opportunity.get("company", "")),
+                str(opportunity.get("type", "")),
+                str(opportunity.get("location", "")),
+                " ".join(opportunity.get("skills", []))
+            ]).lower()
 
             if query in searchable:
+                results.append(opportunity)
 
-                results.append(
-                    opportunity
-                )
-
-        return results
-
+        return results[:20]
 
     def personalized_search(
         self,
         skills=None,
         goal=""
     ):
-
         skills = skills or []
 
         if isinstance(skills, str):
-
             skills = [
-                item.strip()
-                for item in skills.split(",")
-                if item.strip()
+                x.strip()
+                for x in skills.split(",")
+                if x.strip()
             ]
 
         goal = str(goal or "").strip()
 
-        live_jobs = self.fetch_live()
+        opportunities = self._get_opportunities()
 
-        if not live_jobs:
+        user_terms = set(
+            x.lower().strip()
+            for x in skills
+            if x.strip()
+        )
 
-            opportunities = self.demo_opportunities
+        goal_words = re.findall(
+            r"[a-zA-Z0-9+#.]+",
+            goal.lower()
+        )
 
-        else:
+        # Only use meaningful goal terms.
+        ignored = {
+            "the", "and", "for", "with",
+            "from", "want", "become",
+            "learn", "build", "work"
+        }
 
-            opportunities = live_jobs
-
-
-        user_terms = set()
-
-        for skill in skills:
-
-            user_terms.add(
-                skill.lower().strip()
-            )
-
-        for word in goal.lower().split():
-
-            if len(word) >= 3:
-
+        for word in goal_words:
+            if len(word) >= 3 and word not in ignored:
                 user_terms.add(word)
-
 
         scored = []
 
         for opportunity in opportunities:
 
-            searchable = (
-
-                str(
-                    opportunity.get("title", "")
-                )
-                + " "
-                + str(
-                    opportunity.get("company", "")
-                )
-                + " "
-                + str(
-                    opportunity.get("type", "")
-                )
-                + " "
-                + " ".join(
-                    opportunity.get("skills", [])
-                )
-                + " "
-                + str(
-                    opportunity.get("location", "")
-                )
-
+            title = str(
+                opportunity.get("title", "")
             ).lower()
 
+            company = str(
+                opportunity.get("company", "")
+            ).lower()
+
+            location = str(
+                opportunity.get("location", "")
+            ).lower()
+
+            opportunity_skills = [
+                x.lower()
+                for x in opportunity.get(
+                    "skills",
+                    []
+                )
+            ]
+
+            searchable = " ".join([
+                title,
+                company,
+                location,
+                " ".join(opportunity_skills)
+            ])
 
             matched = []
 
             for term in user_terms:
 
-                if term and term in searchable:
-
+                if (
+                    term in opportunity_skills
+                    or term in searchable
+                ):
                     matched.append(term)
 
+            # Skills receive more weight than generic
+            # goal-word matches.
+            skill_matches = sum(
+                1
+                for term in matched
+                if term in opportunity_skills
+            )
 
-            score = 0
+            generic_matches = len(matched) - skill_matches
 
-            if user_terms:
+            score = (
+                skill_matches * 25
+                + generic_matches * 8
+            )
 
-                score = round(
-                    (
-                        len(matched)
-                        / len(user_terms)
-                    ) * 100
-                )
-
+            score = min(score, 100)
 
             item = dict(opportunity)
 
             item["match_score"] = score
-
             item["matched_skills"] = matched
 
             scored.append(item)
 
-
         scored.sort(
-            key=lambda item: item["match_score"],
+            key=lambda x: x["match_score"],
             reverse=True
         )
 
