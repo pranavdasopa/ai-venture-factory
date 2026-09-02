@@ -1,28 +1,29 @@
+import json
 import os
-import sqlite3
 
 from flask import Flask, request, jsonify, render_template
 
 from app.agents.sai_agent import SAI
 from app.agents.opportunity_agent import OpportunityAgent
-from app.core.database import get_connection, initialize_database
+from app.agents.company_builder_agent import CompanyBuilderAgent
+
+from app.core.database import (
+    get_connection,
+    initialize_database
+)
 
 
 # ==========================================
-# APP
+# APPLICATION
 # ==========================================
 
 app = Flask(__name__)
 
+initialize_database()
+
 sai = SAI()
 opportunity_agent = OpportunityAgent()
-
-
-# ==========================================
-# DATABASE
-# ==========================================
-
-initialize_database()
+company_builder = CompanyBuilderAgent()
 
 
 # ==========================================
@@ -31,7 +32,6 @@ initialize_database()
 
 @app.route("/")
 def home():
-
     return render_template("index.html")
 
 
@@ -51,7 +51,7 @@ def health():
 
 
 # ==========================================
-# CHAT
+# SAI CHAT
 # ==========================================
 
 @app.route("/api/chat", methods=["POST"])
@@ -88,7 +88,7 @@ def chat():
 
 
 # ==========================================
-# PROFILE
+# USER PROFILE
 # ==========================================
 
 @app.route("/api/profile", methods=["POST"])
@@ -112,14 +112,12 @@ def create_profile():
         data.get("skills", "")
     ).strip()
 
-
     if not name:
 
         return jsonify({
             "success": False,
             "error": "Name is required."
         }), 400
-
 
     if not email:
 
@@ -128,63 +126,14 @@ def create_profile():
             "error": "Email is required."
         }), 400
 
-
     connection = get_connection()
 
-    connection.row_factory = sqlite3.Row
-
-
     try:
-
-        existing = connection.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE email = ?
-            """,
-            (email,)
-        ).fetchone()
-
-
-        if existing:
-
-            user_id = existing["id"]
-
-            connection.execute(
-                """
-                UPDATE users
-                SET
-                    name = ?,
-                    goal = ?,
-                    skills = ?
-                WHERE id = ?
-                """,
-                (
-                    name,
-                    goal,
-                    skills,
-                    user_id
-                )
-            )
-
-            connection.commit()
-
-            return jsonify({
-                "success": True,
-                "user_id": user_id,
-                "message": "Profile updated."
-            })
-
 
         cursor = connection.execute(
             """
             INSERT INTO users
-            (
-                name,
-                email,
-                goal,
-                skills
-            )
+            (name, email, goal, skills)
             VALUES (?, ?, ?, ?)
             """,
             (
@@ -205,105 +154,79 @@ def create_profile():
             "message": "Profile created."
         })
 
+    except Exception as error:
+
+        return jsonify({
+            "success": False,
+            "error": str(error)
+        }), 500
 
     finally:
 
         connection.close()
 
-
-# ==========================================
-# GET PROFILE
-# ==========================================
 
 @app.route("/api/profile/<int:user_id>")
 def get_profile(user_id):
 
     connection = get_connection()
 
-    connection.row_factory = sqlite3.Row
+    user = connection.execute(
+        """
+        SELECT
+            id,
+            name,
+            email,
+            goal,
+            skills,
+            created_at
+        FROM users
+        WHERE id = ?
+        """,
+        (user_id,)
+    ).fetchone()
 
+    connection.close()
 
-    try:
-
-        user = connection.execute(
-            """
-            SELECT
-                id,
-                name,
-                email,
-                goal,
-                skills,
-                created_at
-            FROM users
-            WHERE id = ?
-            """,
-            (user_id,)
-        ).fetchone()
-
-
-        if not user:
-
-            return jsonify({
-                "success": False,
-                "error": "User not found."
-            }), 404
-
+    if not user:
 
         return jsonify({
-            "success": True,
-            "profile": dict(user)
-        })
+            "success": False,
+            "error": "User not found."
+        }), 404
 
-
-    finally:
-
-        connection.close()
+    return jsonify({
+        "success": True,
+        "profile": dict(user)
+    })
 
 
 # ==========================================
 # GOALS
 # ==========================================
 
-@app.route("/api/goals", methods=["GET"])
+@app.route("/api/goals")
 def get_goals():
 
     connection = get_connection()
 
-    connection.row_factory = sqlite3.Row
+    rows = connection.execute(
+        """
+        SELECT title
+        FROM tasks
+        ORDER BY id DESC
+        """
+    ).fetchall()
 
+    connection.close()
 
-    try:
-
-        rows = connection.execute(
-            """
-            SELECT
-                id,
-                title,
-                description,
-                status,
-                priority,
-                created_at
-            FROM tasks
-            ORDER BY id DESC
-            """
-        ).fetchall()
-
-
-        goals = [
-            dict(row)
+    return jsonify({
+        "success": True,
+        "goals": [
+            row["title"]
             for row in rows
         ]
-
-
-        return jsonify({
-            "success": True,
-            "goals": goals
-        })
-
-
-    finally:
-
-        connection.close()
+    })
 
 
 @app.route("/api/goals", methods=["POST"])
@@ -315,7 +238,6 @@ def add_goal():
         data.get("goal", "")
     ).strip()
 
-
     if not goal:
 
         return jsonify({
@@ -323,49 +245,34 @@ def add_goal():
             "error": "Goal is required."
         }), 400
 
-
     connection = get_connection()
 
-
-    try:
-
-        cursor = connection.execute(
-            """
-            INSERT INTO tasks
-            (
-                title,
-                description,
-                owner,
-                status,
-                priority
-            )
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                goal,
-                "",
-                "USER",
-                "todo",
-                "high"
-            )
+    cursor = connection.execute(
+        """
+        INSERT INTO tasks
+        (title, description, owner, status, priority)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            goal,
+            "User goal",
+            "User",
+            "todo",
+            "high"
         )
+    )
 
+    connection.commit()
 
-        connection.commit()
+    goal_id = cursor.lastrowid
 
-        goal_id = cursor.lastrowid
+    connection.close()
 
-
-        return jsonify({
-            "success": True,
-            "goal_id": goal_id,
-            "message": "Goal added."
-        })
-
-
-    finally:
-
-        connection.close()
+    return jsonify({
+        "success": True,
+        "goal_id": goal_id,
+        "message": "Goal added."
+    })
 
 
 # ==========================================
@@ -385,28 +292,17 @@ def opportunities():
         ""
     ).strip()
 
-
-    # --------------------------------------
-    # Explicit search
-    # --------------------------------------
-
     if query:
 
         results = opportunity_agent.search(
             query
         )
 
-
         return jsonify({
             "success": True,
             "personalized": False,
             "opportunities": results
         })
-
-
-    # --------------------------------------
-    # Personalized search
-    # --------------------------------------
 
     if user_id:
 
@@ -421,32 +317,22 @@ def opportunities():
                 "error": "Invalid user_id."
             }), 400
 
-
         connection = get_connection()
 
-        connection.row_factory = sqlite3.Row
+        user = connection.execute(
+            """
+            SELECT
+                id,
+                name,
+                goal,
+                skills
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,)
+        ).fetchone()
 
-
-        try:
-
-            user = connection.execute(
-                """
-                SELECT
-                    id,
-                    name,
-                    goal,
-                    skills
-                FROM users
-                WHERE id = ?
-                """,
-                (user_id,)
-            ).fetchone()
-
-
-        finally:
-
-            connection.close()
-
+        connection.close()
 
         if not user:
 
@@ -455,31 +341,13 @@ def opportunities():
                 "error": "User not found."
             }), 404
 
-
-        skills_text = (
-            user["skills"] or ""
-        )
-
-        goal = (
-            user["goal"] or ""
-        )
-
-
-        # Convert comma-separated skills
-        # into a real Python list.
-
-        skills = [
-            skill.strip()
-            for skill in skills_text.split(",")
-            if skill.strip()
-        ]
-
+        skills = user["skills"] or ""
+        goal = user["goal"] or ""
 
         results = opportunity_agent.personalized_search(
             skills=skills,
             goal=goal
         )
-
 
         return jsonify({
             "success": True,
@@ -488,13 +356,7 @@ def opportunities():
             "opportunities": results
         })
 
-
-    # --------------------------------------
-    # General opportunities
-    # --------------------------------------
-
     results = opportunity_agent.search()
-
 
     return jsonify({
         "success": True,
@@ -504,331 +366,548 @@ def opportunities():
 
 
 # ==========================================
-# APPLICATION TRACKER
+# COMPANY BUILDER
 # ==========================================
 
-@app.route("/api/applications", methods=["GET"])
-def get_applications():
-
-    user_id = request.args.get(
-        "user_id",
-        ""
-    ).strip()
-
-
-    if not user_id:
-
-        return jsonify({
-            "success": False,
-            "error": "user_id is required."
-        }), 400
-
-
-    try:
-
-        user_id = int(user_id)
-
-    except ValueError:
-
-        return jsonify({
-            "success": False,
-            "error": "Invalid user_id."
-        }), 400
-
-
-    connection = get_connection()
-
-    connection.row_factory = sqlite3.Row
-
-
-    try:
-
-        rows = connection.execute(
-            """
-            SELECT
-                id,
-                user_id,
-                opportunity_id,
-                title,
-                company,
-                url,
-                status,
-                created_at
-            FROM applications
-            WHERE user_id = ?
-            ORDER BY id DESC
-            """,
-            (user_id,)
-        ).fetchall()
-
-
-        applications = [
-            dict(row)
-            for row in rows
-        ]
-
-
-        return jsonify({
-            "success": True,
-            "applications": applications
-        })
-
-
-    finally:
-
-        connection.close()
-
-
-# ==========================================
-# SAVE APPLICATION
-# ==========================================
-
-@app.route("/api/applications", methods=["POST"])
-def save_application():
+@app.route("/api/companies/build", methods=["POST"])
+def build_company():
 
     data = request.get_json() or {}
 
+    idea = str(
+        data.get("idea", "")
+    ).strip()
 
-    try:
+    user_id = data.get(
+        "user_id"
+    )
 
-        user_id = int(
-            data.get("user_id")
-        )
-
-    except (
-        TypeError,
-        ValueError
-    ):
+    if not idea:
 
         return jsonify({
             "success": False,
-            "error": "Valid user_id is required."
+            "error": "Startup idea is required."
         }), 400
 
-
-    opportunity_id = str(
-        data.get(
-            "opportunity_id",
-            ""
-        )
-    ).strip()
-
-
-    title = str(
-        data.get(
-            "title",
-            ""
-        )
-    ).strip()
-
-
-    company = str(
-        data.get(
-            "company",
-            ""
-        )
-    ).strip()
-
-
-    url = str(
-        data.get(
-            "url",
-            ""
-        )
-    ).strip()
-
-
-    if not opportunity_id:
+    if len(idea) < 10:
 
         return jsonify({
             "success": False,
-            "error": "opportunity_id is required."
+            "error": "Startup idea is too short."
         }), 400
 
+    if user_id is not None:
 
-    if not title:
+        try:
 
-        return jsonify({
-            "success": False,
-            "error": "Opportunity title is required."
-        }), 400
+            user_id = int(user_id)
 
-
-    connection = get_connection()
-
-    connection.row_factory = sqlite3.Row
-
-
-    try:
-
-        user = connection.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE id = ?
-            """,
-            (user_id,)
-        ).fetchone()
-
-
-        if not user:
+        except (ValueError, TypeError):
 
             return jsonify({
                 "success": False,
-                "error": "User not found."
-            }), 404
+                "error": "Invalid user_id."
+            }), 400
 
+    try:
 
-        existing = connection.execute(
-            """
-            SELECT id
-            FROM applications
-            WHERE user_id = ?
-            AND opportunity_id = ?
-            """,
-            (
-                user_id,
-                opportunity_id
-            )
-        ).fetchone()
+        # ----------------------------------
+        # Generate company blueprint
+        # ----------------------------------
 
-
-        if existing:
-
-            return jsonify({
-                "success": True,
-                "application_id": existing["id"],
-                "message": "Opportunity already saved."
-            })
-
-
-        cursor = connection.execute(
-            """
-            INSERT INTO applications
-            (
-                user_id,
-                opportunity_id,
-                title,
-                company,
-                url,
-                status
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                opportunity_id,
-                title,
-                company,
-                url,
-                "saved"
-            )
+        blueprint = company_builder.build(
+            idea
         )
 
+        # ----------------------------------
+        # Save everything atomically
+        # ----------------------------------
 
-        connection.commit()
+        connection = get_connection()
+
+        try:
+
+            cursor = connection.execute(
+                """
+                INSERT INTO companies
+                (
+                    user_id,
+                    name,
+                    idea,
+                    industry,
+                    status
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    blueprint["company_name"],
+                    idea,
+                    blueprint["industry"],
+                    "blueprint"
+                )
+            )
+
+            company_id = cursor.lastrowid
+
+            # ----------------------------------
+            # Save blueprint
+            # ----------------------------------
+
+            connection.execute(
+                """
+                INSERT INTO company_blueprints
+                (
+                    company_id,
+                    problem,
+                    target_customer,
+                    proposed_solution,
+                    value_proposition,
+                    market_hypothesis,
+                    competitors,
+                    business_model,
+                    pricing_hypothesis,
+                    mvp_scope,
+                    technical_architecture,
+                    technology_stack,
+                    risks,
+                    validation_experiments,
+                    next_actions,
+                    raw_response
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    company_id,
+                    blueprint["problem"],
+                    blueprint["target_customer"],
+                    blueprint["proposed_solution"],
+                    blueprint["value_proposition"],
+                    blueprint["market_hypothesis"],
+                    json.dumps(
+                        blueprint["competitors"]
+                    ),
+                    blueprint["business_model"],
+                    blueprint["pricing_hypothesis"],
+                    json.dumps(
+                        blueprint["mvp_scope"]
+                    ),
+                    blueprint["technical_architecture"],
+                    json.dumps(
+                        blueprint["technology_stack"]
+                    ),
+                    json.dumps(
+                        blueprint["risks"]
+                    ),
+                    json.dumps(
+                        blueprint["validation_experiments"]
+                    ),
+                    json.dumps(
+                        blueprint["next_actions"]
+                    ),
+                    json.dumps(
+                        blueprint
+                    )
+                )
+            )
+
+            # ----------------------------------
+            # Save execution tasks
+            # ----------------------------------
+
+            for position, task in enumerate(
+                blueprint["execution_tasks"]
+            ):
+
+                connection.execute(
+                    """
+                    INSERT INTO execution_tasks
+                    (
+                        company_id,
+                        title,
+                        description,
+                        department,
+                        owner,
+                        priority,
+                        status,
+                        position
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        company_id,
+                        task["title"],
+                        task["description"],
+                        task["department"],
+                        None,
+                        task["priority"],
+                        "todo",
+                        position
+                    )
+                )
+
+            connection.commit()
+
+        except Exception:
+
+            connection.rollback()
+
+            raise
+
+        finally:
+
+            connection.close()
 
 
         return jsonify({
             "success": True,
-            "application_id": cursor.lastrowid,
-            "message": "Opportunity saved."
-        })
+            "company_id": company_id,
+            "company": blueprint
+        }), 201
 
 
-    finally:
+    except Exception as error:
+
+        return jsonify({
+            "success": False,
+            "error": str(error)
+        }), 500
+
+
+# ==========================================
+# LIST COMPANIES
+# ==========================================
+
+@app.route("/api/companies")
+def list_companies():
+
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT
+            id,
+            user_id,
+            name,
+            idea,
+            industry,
+            status,
+            created_at,
+            updated_at
+        FROM companies
+        ORDER BY id DESC
+        """
+    ).fetchall()
+
+    connection.close()
+
+    return jsonify({
+        "success": True,
+        "companies": [
+            dict(row)
+            for row in rows
+        ]
+    })
+
+
+# ==========================================
+# GET COMPANY
+# ==========================================
+
+@app.route("/api/companies/<int:company_id>")
+def get_company(company_id):
+
+    connection = get_connection()
+
+    company = connection.execute(
+        """
+        SELECT
+            id,
+            user_id,
+            name,
+            idea,
+            industry,
+            status,
+            created_at,
+            updated_at
+        FROM companies
+        WHERE id = ?
+        """,
+        (company_id,)
+    ).fetchone()
+
+    if not company:
 
         connection.close()
 
+        return jsonify({
+            "success": False,
+            "error": "Company not found."
+        }), 404
+
+
+    blueprint = connection.execute(
+        """
+        SELECT *
+        FROM company_blueprints
+        WHERE company_id = ?
+        """,
+        (company_id,)
+    ).fetchone()
+
+
+    tasks = connection.execute(
+        """
+        SELECT
+            id,
+            company_id,
+            title,
+            description,
+            department,
+            owner,
+            priority,
+            status,
+            position,
+            created_at,
+            updated_at
+        FROM execution_tasks
+        WHERE company_id = ?
+        ORDER BY position ASC
+        """,
+        (company_id,)
+    ).fetchall()
+
+
+    connection.close()
+
+
+    blueprint_data = None
+
+    if blueprint:
+
+        blueprint_data = dict(
+            blueprint
+        )
+
+        json_fields = [
+            "competitors",
+            "mvp_scope",
+            "technology_stack",
+            "risks",
+            "validation_experiments",
+            "next_actions"
+        ]
+
+        for field in json_fields:
+
+            try:
+
+                blueprint_data[field] = json.loads(
+                    blueprint_data[field]
+                )
+
+            except (
+                TypeError,
+                json.JSONDecodeError
+            ):
+
+                pass
+
+
+    return jsonify({
+        "success": True,
+        "company": dict(company),
+        "blueprint": blueprint_data,
+        "execution_tasks": [
+            dict(task)
+            for task in tasks
+        ]
+    })
+
 
 # ==========================================
-# UPDATE APPLICATION STATUS
+# COMPANY TASKS
+# ==========================================
+
+@app.route("/api/companies/<int:company_id>/tasks")
+def company_tasks(company_id):
+
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT
+            id,
+            company_id,
+            title,
+            description,
+            department,
+            owner,
+            priority,
+            status,
+            position,
+            created_at,
+            updated_at
+        FROM execution_tasks
+        WHERE company_id = ?
+        ORDER BY position ASC
+        """,
+        (company_id,)
+    ).fetchall()
+
+    connection.close()
+
+    return jsonify({
+        "success": True,
+        "company_id": company_id,
+        "tasks": [
+            dict(row)
+            for row in rows
+        ]
+    })
+
+
+# ==========================================
+# UPDATE COMPANY TASK
 # ==========================================
 
 @app.route(
-    "/api/applications/<int:application_id>",
+    "/api/companies/<int:company_id>/tasks/<int:task_id>",
     methods=["PATCH"]
 )
-def update_application(
-    application_id
+def update_company_task(
+    company_id,
+    task_id
 ):
 
     data = request.get_json() or {}
 
+    status = data.get("status")
+    priority = data.get("priority")
 
-    status = str(
-        data.get(
-            "status",
-            ""
-        )
-    ).strip().lower()
+    allowed_statuses = [
+        "todo",
+        "in_progress",
+        "blocked",
+        "done"
+    ]
+
+    allowed_priorities = [
+        "high",
+        "medium",
+        "low"
+    ]
+
+    if status is not None:
+
+        status = str(status)
+
+        if status not in allowed_statuses:
+
+            return jsonify({
+                "success": False,
+                "error": "Invalid status."
+            }), 400
 
 
-    allowed_statuses = {
-        "saved",
-        "applied",
-        "interview",
-        "offer",
-        "rejected"
-    }
+    if priority is not None:
+
+        priority = str(priority)
+
+        if priority not in allowed_priorities:
+
+            return jsonify({
+                "success": False,
+                "error": "Invalid priority."
+            }), 400
 
 
-    if status not in allowed_statuses:
+    if status is None and priority is None:
 
         return jsonify({
             "success": False,
-            "error": (
-                "Invalid status. "
-                "Use: saved, applied, "
-                "interview, offer, rejected."
-            )
+            "error": "Nothing to update."
         }), 400
 
 
     connection = get_connection()
 
-
-    try:
-
-        cursor = connection.execute(
-            """
-            UPDATE applications
-            SET status = ?
-            WHERE id = ?
-            """,
-            (
-                status,
-                application_id
-            )
+    task = connection.execute(
+        """
+        SELECT id
+        FROM execution_tasks
+        WHERE id = ?
+        AND company_id = ?
+        """,
+        (
+            task_id,
+            company_id
         )
+    ).fetchone()
 
-
-        connection.commit()
-
-
-        if cursor.rowcount == 0:
-
-            return jsonify({
-                "success": False,
-                "error": "Application not found."
-            }), 404
-
-
-        return jsonify({
-            "success": True,
-            "application_id": application_id,
-            "status": status,
-            "message": "Application updated."
-        })
-
-
-    finally:
+    if not task:
 
         connection.close()
 
+        return jsonify({
+            "success": False,
+            "error": "Task not found."
+        }), 404
+
+
+    fields = []
+    values = []
+
+    if status is not None:
+
+        fields.append(
+            "status = ?"
+        )
+
+        values.append(status)
+
+    if priority is not None:
+
+        fields.append(
+            "priority = ?"
+        )
+
+        values.append(priority)
+
+
+    fields.append(
+        "updated_at = CURRENT_TIMESTAMP"
+    )
+
+    values.extend([
+        task_id,
+        company_id
+    ])
+
+
+    connection.execute(
+        f"""
+        UPDATE execution_tasks
+        SET {", ".join(fields)}
+        WHERE id = ?
+        AND company_id = ?
+        """,
+        values
+    )
+
+    connection.commit()
+
+    connection.close()
+
+
+    return jsonify({
+        "success": True,
+        "message": "Task updated."
+    })
+
 
 # ==========================================
-# SERVER
+# RUN LOCAL SERVER
 # ==========================================
 
 if __name__ == "__main__":
@@ -839,7 +918,6 @@ if __name__ == "__main__":
             5000
         )
     )
-
 
     app.run(
         host="0.0.0.0",
