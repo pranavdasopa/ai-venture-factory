@@ -27,23 +27,29 @@ You are the Company Strategy Agent inside AI Venture Factory.
 
 Transform the startup idea into a practical company blueprint.
 
-IMPORTANT OUTPUT RULES:
+Think like:
+- startup founder
+- product strategist
+- CTO
+- CFO
+- marketing strategist
+- sales strategist
+- operations leader
 
-1. Return EXACTLY ONE JSON OBJECT.
-2. The first character of your response MUST be {.
-3. The last character of your response MUST be }.
-4. Do NOT write anything before or after the JSON.
-5. Do NOT use markdown.
-6. Do NOT use ```json.
-7. Use valid JSON syntax.
-8. Use double quotes for every JSON key and string.
-9. Never use trailing commas.
-10. Do not include comments inside JSON.
-11. Do not invent specific market statistics, contracts,
-revenue numbers, or competitor facts unless clearly marked
-as hypotheses.
+Be realistic. Do not invent specific market statistics,
+customer contracts, revenue numbers, or facts.
 
-The JSON must have exactly these fields:
+CRITICAL OUTPUT RULES:
+
+Return ONLY one valid JSON object.
+
+Do not use markdown.
+Do not use ```json.
+Do not write explanations before or after the JSON.
+
+Keep every string concise.
+
+The JSON must have exactly these top-level fields:
 
 {
   "company_name": "",
@@ -65,9 +71,9 @@ The JSON must have exactly these fields:
   "execution_tasks": []
 }
 
-execution_tasks must contain approximately 8-15 objects.
+execution_tasks must contain 8 useful tasks.
 
-Each execution task MUST contain:
+Every task must have exactly:
 
 {
   "title": "",
@@ -76,13 +82,13 @@ Each execution task MUST contain:
   "priority": ""
 }
 
-Priority MUST be exactly one of:
+Allowed priority values:
 
 "high"
 "medium"
 "low"
 
-Departments may include:
+Allowed departments:
 
 Strategy
 Product
@@ -93,15 +99,16 @@ Sales
 Operations
 Finance
 
-The blueprint must be practical enough to start an MVP.
+Keep arrays concise.
+
+The result must be valid JSON that can be parsed directly
+by Python json.loads().
 """
 
         user_prompt = f"""
-Build the company blueprint for this startup idea:
+Create the company blueprint for:
 
 {idea}
-
-Return ONLY the JSON object.
 """
 
         raw_response = self.model.generate(
@@ -113,36 +120,19 @@ Return ONLY the JSON object.
 
     def _extract_json(self, text):
 
-        if not text:
-            return None
-
         text = text.strip()
 
-        # Remove common markdown fences.
+        # Remove markdown fences if the model ignored the instruction.
         text = re.sub(
-            r"```json\s*",
+            r"```(?:json)?",
             "",
             text,
             flags=re.IGNORECASE
         )
 
-        text = re.sub(
-            r"```\s*",
-            "",
-            text
-        )
+        text = text.replace("```", "").strip()
 
-        text = text.strip()
-
-        # First attempt: entire response.
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        # Second attempt:
-        # Find the first JSON object and use
-        # the matching closing brace.
+        # Find the outermost JSON object.
         start = text.find("{")
 
         if start == -1:
@@ -176,18 +166,11 @@ Return ONLY the JSON object.
                 depth += 1
 
             elif char == "}":
+
                 depth -= 1
 
                 if depth == 0:
-
-                    candidate = text[
-                        start:index + 1
-                    ]
-
-                    try:
-                        return json.loads(candidate)
-                    except json.JSONDecodeError:
-                        return None
+                    return text[start:index + 1]
 
         return None
 
@@ -198,22 +181,31 @@ Return ONLY the JSON object.
                 "The AI returned an empty company blueprint."
             )
 
-        data = self._extract_json(raw_response)
+        text = str(raw_response).strip()
 
-        if data is None:
+        json_text = self._extract_json(text)
 
-            # Give a useful diagnostic without dumping
-            # potentially huge model output.
-            preview = str(raw_response).strip()
+        if not json_text:
 
-            if len(preview) > 500:
-                preview = preview[:500] + "..."
+            preview = text[:500].replace("\n", " ")
+
+            raise RuntimeError(
+                "Gemini returned incomplete company blueprint JSON. "
+                f"Response preview: {preview}"
+            )
+
+        try:
+
+            data = json.loads(json_text)
+
+        except json.JSONDecodeError as error:
+
+            preview = text[:500].replace("\n", " ")
 
             raise RuntimeError(
                 "Gemini returned malformed company blueprint JSON. "
-                "Response preview: "
-                + preview
-            )
+                f"Response preview: {preview}"
+            ) from error
 
         self._validate(data)
 
@@ -242,6 +234,7 @@ Return ONLY the JSON object.
         ]
 
         if not isinstance(data, dict):
+
             raise RuntimeError(
                 "Company blueprint must be a JSON object."
             )
@@ -253,6 +246,7 @@ Return ONLY the JSON object.
         ]
 
         if missing:
+
             raise RuntimeError(
                 "Company blueprint is missing fields: "
                 + ", ".join(missing)
