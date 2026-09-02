@@ -25,52 +25,25 @@ class CompanyBuilderAgent:
         system_prompt = """
 You are the Company Strategy Agent inside AI Venture Factory.
 
-Your job is to transform a raw startup idea into a practical,
-structured company blueprint that can be used by other AI agents.
-
-Think like a combination of:
-
-- elite startup founder
-- product strategist
-- market researcher
-- CTO
-- CFO
-- growth strategist
-- operations leader
-
-Be realistic and evidence-aware.
-
-Do not invent specific market statistics, customer contracts,
-revenue numbers, or verified competitor facts.
-
-If something is uncertain, describe it as a hypothesis.
+Transform the startup idea into a practical company blueprint.
 
 IMPORTANT OUTPUT RULES:
 
-Return ONLY ONE valid JSON object.
+1. Return EXACTLY ONE JSON OBJECT.
+2. The first character of your response MUST be {.
+3. The last character of your response MUST be }.
+4. Do NOT write anything before or after the JSON.
+5. Do NOT use markdown.
+6. Do NOT use ```json.
+7. Use valid JSON syntax.
+8. Use double quotes for every JSON key and string.
+9. Never use trailing commas.
+10. Do not include comments inside JSON.
+11. Do not invent specific market statistics, contracts,
+revenue numbers, or competitor facts unless clearly marked
+as hypotheses.
 
-The response MUST begin with {
-and MUST end with }.
-
-Do not write anything before the JSON.
-
-Do not write anything after the JSON.
-
-Do not use markdown.
-
-Do not use ```json.
-
-Do not use ```.
-
-Do not include comments.
-
-Do not return multiple JSON objects.
-
-Do not include trailing commas.
-
-All JSON strings must use double quotes.
-
-The JSON must contain exactly these top-level fields:
+The JSON must have exactly these fields:
 
 {
   "company_name": "",
@@ -92,62 +65,9 @@ The JSON must contain exactly these top-level fields:
   "execution_tasks": []
 }
 
-FIELD REQUIREMENTS:
+execution_tasks must contain approximately 8-15 objects.
 
-company_name:
-A concise potential company name.
-
-industry:
-The primary industry.
-
-problem:
-The specific customer problem.
-
-target_customer:
-The ideal first customer.
-
-proposed_solution:
-What the company will build.
-
-value_proposition:
-Why the customer should care.
-
-market_hypothesis:
-A testable hypothesis about the market.
-Do not invent precise market-size numbers.
-
-competitors:
-An array of known or plausible competing solutions.
-Do not claim unsupported facts.
-
-business_model:
-How the company could make money.
-
-pricing_hypothesis:
-An initial pricing hypothesis, clearly treated as a hypothesis.
-
-mvp_scope:
-An array of the smallest useful MVP capabilities.
-
-technical_architecture:
-A concise technical architecture for the MVP.
-
-technology_stack:
-An array of technologies appropriate for the MVP.
-
-risks:
-An array of important business, technical and market risks.
-
-validation_experiments:
-An array of experiments that can test the most important assumptions.
-
-next_actions:
-An array of immediate actions for the founder.
-
-execution_tasks:
-An array containing approximately 8-12 actionable tasks.
-
-Each execution task MUST have exactly these fields:
+Each execution task MUST contain:
 
 {
   "title": "",
@@ -156,37 +76,32 @@ Each execution task MUST have exactly these fields:
   "priority": ""
 }
 
-Allowed department values:
-
-"Strategy"
-"Product"
-"Engineering"
-"Design"
-"Marketing"
-"Sales"
-"Operations"
-"Finance"
-
-Allowed priority values:
+Priority MUST be exactly one of:
 
 "high"
 "medium"
 "low"
 
-Make execution tasks concrete and useful.
+Departments may include:
 
-The blueprint must be suitable for actually starting an MVP.
+Strategy
+Product
+Engineering
+Design
+Marketing
+Sales
+Operations
+Finance
 
-Avoid generic motivational advice.
-
-Prioritize customer validation, MVP development,
-distribution and measurable execution.
+The blueprint must be practical enough to start an MVP.
 """
 
         user_prompt = f"""
-Build a company blueprint for this startup idea:
+Build the company blueprint for this startup idea:
 
 {idea}
+
+Return ONLY the JSON object.
 """
 
         raw_response = self.model.generate(
@@ -196,6 +111,85 @@ Build a company blueprint for this startup idea:
 
         return self._parse_response(raw_response)
 
+    def _extract_json(self, text):
+
+        if not text:
+            return None
+
+        text = text.strip()
+
+        # Remove common markdown fences.
+        text = re.sub(
+            r"```json\s*",
+            "",
+            text,
+            flags=re.IGNORECASE
+        )
+
+        text = re.sub(
+            r"```\s*",
+            "",
+            text
+        )
+
+        text = text.strip()
+
+        # First attempt: entire response.
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Second attempt:
+        # Find the first JSON object and use
+        # the matching closing brace.
+        start = text.find("{")
+
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escaped = False
+
+        for index in range(start, len(text)):
+
+            char = text[index]
+
+            if in_string:
+
+                if escaped:
+                    escaped = False
+
+                elif char == "\\":
+                    escaped = True
+
+                elif char == '"':
+                    in_string = False
+
+                continue
+
+            if char == '"':
+                in_string = True
+
+            elif char == "{":
+                depth += 1
+
+            elif char == "}":
+                depth -= 1
+
+                if depth == 0:
+
+                    candidate = text[
+                        start:index + 1
+                    ]
+
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        return None
+
+        return None
 
     def _parse_response(self, raw_response):
 
@@ -204,63 +198,30 @@ Build a company blueprint for this startup idea:
                 "The AI returned an empty company blueprint."
             )
 
-        text = raw_response.strip()
+        data = self._extract_json(raw_response)
 
-        # Remove accidental markdown fences.
-        text = re.sub(
-            r"^```(?:json)?\s*",
-            "",
-            text,
-            flags=re.IGNORECASE
-        )
+        if data is None:
 
-        text = re.sub(
-            r"\s*```$",
-            "",
-            text
-        )
+            # Give a useful diagnostic without dumping
+            # potentially huge model output.
+            preview = str(raw_response).strip()
 
-        # First attempt: parse the entire response.
-        try:
+            if len(preview) > 500:
+                preview = preview[:500] + "..."
 
-            data = json.loads(text)
-
-        except json.JSONDecodeError:
-
-            # Second attempt: recover a JSON object
-            # if the model accidentally added surrounding text.
-            start = text.find("{")
-            end = text.rfind("}")
-
-            if start == -1 or end == -1 or end <= start:
-
-                raise RuntimeError(
-                    "Gemini returned invalid JSON for the "
-                    "company blueprint."
-                )
-
-            candidate = text[start:end + 1]
-
-            try:
-
-                data = json.loads(candidate)
-
-            except json.JSONDecodeError as error:
-
-                raise RuntimeError(
-                    "Gemini returned malformed company "
-                    "blueprint JSON."
-                ) from error
+            raise RuntimeError(
+                "Gemini returned malformed company blueprint JSON. "
+                "Response preview: "
+                + preview
+            )
 
         self._validate(data)
 
         return data
 
-
     def _validate(self, data):
 
         required_fields = [
-
             "company_name",
             "industry",
             "problem",
@@ -278,34 +239,26 @@ Build a company blueprint for this startup idea:
             "validation_experiments",
             "next_actions",
             "execution_tasks"
-
         ]
 
         if not isinstance(data, dict):
-
             raise RuntimeError(
                 "Company blueprint must be a JSON object."
             )
 
-
         missing = [
-
             field
             for field in required_fields
             if field not in data
-
         ]
 
         if missing:
-
             raise RuntimeError(
                 "Company blueprint is missing fields: "
                 + ", ".join(missing)
             )
 
-
         list_fields = [
-
             "competitors",
             "mvp_scope",
             "technology_stack",
@@ -313,9 +266,7 @@ Build a company blueprint for this startup idea:
             "validation_experiments",
             "next_actions",
             "execution_tasks"
-
         ]
-
 
         for field in list_fields:
 
@@ -325,7 +276,6 @@ Build a company blueprint for this startup idea:
                     f"Blueprint field '{field}' must be a list."
                 )
 
-
         for task in data["execution_tasks"]:
 
             if not isinstance(task, dict):
@@ -334,18 +284,12 @@ Build a company blueprint for this startup idea:
                     "Each execution task must be an object."
                 )
 
-
-            required_task_fields = [
-
+            for field in [
                 "title",
                 "description",
                 "department",
                 "priority"
-
-            ]
-
-
-            for field in required_task_fields:
+            ]:
 
                 if field not in task:
 
@@ -354,13 +298,10 @@ Build a company blueprint for this startup idea:
                         + field
                     )
 
-
             if task["priority"] not in [
-
                 "high",
                 "medium",
                 "low"
-
             ]:
 
                 task["priority"] = "medium"
