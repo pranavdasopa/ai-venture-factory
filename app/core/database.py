@@ -31,6 +31,11 @@ def initialize_database():
 
     cursor = connection.cursor()
 
+
+    # ==========================================
+    # EXISTING TABLES
+    # ==========================================
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS decisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +46,7 @@ def initialize_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
@@ -54,6 +60,7 @@ def initialize_database():
         )
     """)
 
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS memories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,6 +69,7 @@ def initialize_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -73,6 +81,7 @@ def initialize_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS applications (
@@ -89,6 +98,155 @@ def initialize_database():
             UNIQUE(user_id, opportunity_id)
         )
     """)
+
+
+    # ==========================================
+    # AI VENTURE FACTORY
+    # COMPANY TABLE
+    # ==========================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS companies (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            user_id INTEGER,
+
+            name TEXT NOT NULL,
+
+            idea TEXT NOT NULL,
+
+            industry TEXT,
+
+            status TEXT NOT NULL DEFAULT 'idea',
+
+            created_at
+                TIMESTAMP
+                DEFAULT CURRENT_TIMESTAMP,
+
+            updated_at
+                TIMESTAMP
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY(user_id)
+                REFERENCES users(id)
+        )
+    """)
+
+
+    # ==========================================
+    # COMPANY BLUEPRINT
+    # ==========================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS company_blueprints (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            company_id INTEGER NOT NULL UNIQUE,
+
+            problem TEXT,
+
+            target_customer TEXT,
+
+            proposed_solution TEXT,
+
+            value_proposition TEXT,
+
+            market_hypothesis TEXT,
+
+            competitors TEXT,
+
+            business_model TEXT,
+
+            pricing_hypothesis TEXT,
+
+            mvp_scope TEXT,
+
+            technical_architecture TEXT,
+
+            technology_stack TEXT,
+
+            risks TEXT,
+
+            validation_experiments TEXT,
+
+            next_actions TEXT,
+
+            raw_response TEXT,
+
+            created_at
+                TIMESTAMP
+                DEFAULT CURRENT_TIMESTAMP,
+
+            updated_at
+                TIMESTAMP
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY(company_id)
+                REFERENCES companies(id)
+                ON DELETE CASCADE
+        )
+    """)
+
+
+    # ==========================================
+    # COMPANY EXECUTION TASKS
+    # ==========================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS execution_tasks (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            company_id INTEGER NOT NULL,
+
+            title TEXT NOT NULL,
+
+            description TEXT,
+
+            department TEXT,
+
+            owner TEXT,
+
+            priority TEXT NOT NULL DEFAULT 'medium',
+
+            status TEXT NOT NULL DEFAULT 'todo',
+
+            position INTEGER NOT NULL DEFAULT 0,
+
+            created_at
+                TIMESTAMP
+                DEFAULT CURRENT_TIMESTAMP,
+
+            updated_at
+                TIMESTAMP
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY(company_id)
+                REFERENCES companies(id)
+                ON DELETE CASCADE
+        )
+    """)
+
+
+    # ==========================================
+    # INDEXES
+    # ==========================================
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS
+        idx_companies_user_id
+        ON companies(user_id)
+    """)
+
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS
+        idx_execution_tasks_company_id
+        ON execution_tasks(company_id)
+    """)
+
 
     connection.commit()
 
