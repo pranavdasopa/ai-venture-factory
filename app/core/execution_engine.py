@@ -47,7 +47,7 @@ class ExecutionEngine:
 
     def create_task(
         self, title, description, agent_role, priority="medium",
-        depends_on=None, requires_approval=False
+        depends_on=None, requires_approval=False, tool_name=None
     ):
         if not self.agents.get(agent_role):
             raise ValueError(f"Unknown agent role: {agent_role}")
@@ -59,24 +59,20 @@ class ExecutionEngine:
                 """
                 INSERT INTO execution_tasks
                 (company_id, title, description, department, owner, agent_role,
-                 priority, status, position, depends_on, requires_approval,
+                 priority, status, position, depends_on, requires_approval, tool_name,
                  created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', 0, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', 0, ?, ?, ?, ?, ?)
                 """,
-                (
-                    1, title, description, agent_role, agent_role, agent_role,
-                    priority, json.dumps(depends_on), int(requires_approval), tool_name, now, now
-                ),
+                (1, title, description, agent_role, agent_role, agent_role,
+                 priority, json.dumps(depends_on), int(requires_approval), tool_name, now, now)
             )
             task_id = cursor.lastrowid
             connection.commit()
         finally:
             connection.close()
-
-        self._audit(
-            "SYSTEM", "execution_engine", "TASK_CREATED", "task", task_id,
-            "SUCCESS", {"agent_role": agent_role, "requires_approval": requires_approval},
-        )
+        self._audit("SYSTEM", "execution_engine", "TASK_CREATED", "task", task_id,
+                    "SUCCESS", {"agent_role": agent_role, "tool_name": tool_name,
+                                 "requires_approval": requires_approval})
         return task_id
 
     def _load_task(self, task_id):
