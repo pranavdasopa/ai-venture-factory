@@ -65,7 +65,7 @@ class ExecutionEngine:
                 """,
                 (
                     1, title, description, agent_role, agent_role, agent_role,
-                    priority, json.dumps(depends_on), int(requires_approval), now, now
+                    priority, json.dumps(depends_on), int(requires_approval), tool_name, now, now
                 ),
             )
             task_id = cursor.lastrowid
