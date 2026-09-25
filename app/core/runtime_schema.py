@@ -30,6 +30,8 @@ def initialize_runtime_schema():
         _add_column(connection, "execution_tasks", "completed_at", "TEXT")
         _add_column(connection, "execution_tasks", "last_error", "TEXT")
         _add_column(connection, "execution_tasks", "result", "TEXT")
+        _add_column(connection, "execution_tasks", "created_at", "TIMESTAMP")
+        _add_column(connection, "execution_tasks", "updated_at", "TIMESTAMP")
 
         connection.execute("""
             CREATE TABLE IF NOT EXISTS agent_registry (
