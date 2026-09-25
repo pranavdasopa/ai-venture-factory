@@ -12,6 +12,8 @@ from app.core.database import (
     initialize_database
 )
 
+from app.core.runtime import get_runtime_status
+
 
 # ==========================================
 # APPLICATION
@@ -41,13 +43,16 @@ def home():
 
 @app.route("/api/health")
 def health():
+    """Return truthful runtime health; never manufacture operational claims."""
+    status = get_runtime_status()
+    http_status = 200 if status["database"]["ok"] else 503
+    return jsonify(status), http_status
 
-    return jsonify({
-        "company": "AI Venture Factory",
-        "product": "SAI",
-        "status": "ONLINE",
-        "ai": "ONLINE"
-    })
+
+@app.route("/api/runtime")
+def runtime():
+    """Expose the same evidence-backed runtime status for the founder dashboard."""
+    return jsonify(get_runtime_status())
 
 
 # ==========================================
@@ -898,29 +903,3 @@ def update_company_task(
     connection.commit()
 
     connection.close()
-
-
-    return jsonify({
-        "success": True,
-        "message": "Task updated."
-    })
-
-
-# ==========================================
-# RUN LOCAL SERVER
-# ==========================================
-
-if __name__ == "__main__":
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            5000
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False
-    )
