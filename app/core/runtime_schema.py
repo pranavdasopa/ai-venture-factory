@@ -32,6 +32,9 @@ def initialize_runtime_schema():
         _add_column(connection, "execution_tasks", "result", "TEXT")
         _add_column(connection, "execution_tasks", "created_at", "TIMESTAMP")
         _add_column(connection, "execution_tasks", "updated_at", "TIMESTAMP")
+        _add_column(connection, "execution_tasks", "tool_name", "TEXT")
+        _add_column(connection, "execution_tasks", "max_retries", "INTEGER NOT NULL DEFAULT 2")
+        _add_column(connection, "execution_tasks", "retry_count", "INTEGER NOT NULL DEFAULT 0")
 
         connection.execute("""
             CREATE TABLE IF NOT EXISTS agent_registry (
