@@ -22,6 +22,12 @@ class ExecutionEngine:
     def __init__(self, tool_registry=None, agent_registry=None):
         initialize_runtime_schema()
         self.tools = tool_registry or ToolRegistry()
+        try:
+            from app.tools.builtin import register_builtin_tools, register_extended_tools
+            register_builtin_tools(self.tools)
+            register_extended_tools(self.tools)
+        except ImportError:
+            pass
         self.agents = agent_registry or AgentRegistry()
 
     def _now(self):
